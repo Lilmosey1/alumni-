@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, CheckCircle, MapPin, DollarSign, Tag } from 'lucide-react';
+import { Upload, CheckCircle, MapPin, kenyan shillingabbreviation, Tag } from 'lucide-react';
 import { CATEGORIES, LOCATION_DATA } from '../constants';
 
 export const Advertise: React.FC = () => {
@@ -10,7 +10,7 @@ export const Advertise: React.FC = () => {
     continent: '',
     country: '',
     city: '',
-    condition: 'Good',
+    condition: 'excellent',
     description: '',
     contactEmail: ''
   });
