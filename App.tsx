@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
@@ -9,14 +9,33 @@ import { Checkout } from './pages/Checkout';
 import { Contact } from './pages/Contact';
 import { Advertise } from './pages/Advertise';
 import { Tracking } from './pages/Tracking';
-import { INITIAL_PRODUCTS } from './constants';
 import { Product, CartItem } from './types';
+import { AuthProvider } from './contexts/AuthContext.tsx';
 
-const App: React.FC = () => {
-  const [products] = useState<Product[]>(INITIAL_PRODUCTS);
+const AppContent: React.FC = () => {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const fetchProducts = async () => {
+    try {
+      const res = await fetch('/api/products');
+      if (res.ok) {
+        const data = await res.json();
+        setProducts(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch marketplace products:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
 
   const handleAddToCart = (product: Product) => {
     setCart(prevCart => {
@@ -57,20 +76,26 @@ const App: React.FC = () => {
         <Navbar cartCount={totalCartItems} />
         
         <main className="flex-grow">
-          <Routes>
-            <Route path="/" element={<Home featuredProducts={products} onViewDetails={handleViewDetails} />} />
-            <Route path="/items" element={<Marketplace products={products} onViewDetails={handleViewDetails} />} />
-            <Route path="/advertise" element={<Advertise />} />
-            <Route path="/track-order" element={<Tracking />} />
-            <Route path="/order" element={
-              <Checkout 
-                cart={cart} 
-                onRemoveFromCart={handleRemoveFromCart}
-                onClearCart={handleClearCart} 
-              />
-            } />
-            <Route path="/contact" element={<Contact />} />
-          </Routes>
+          {loading ? (
+            <div className="flex items-center justify-center min-h-[60vh]">
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-teal-500"></div>
+            </div>
+          ) : (
+            <Routes>
+              <Route path="/" element={<Home featuredProducts={products} onViewDetails={handleViewDetails} />} />
+              <Route path="/items" element={<Marketplace products={products} onViewDetails={handleViewDetails} />} />
+              <Route path="/advertise" element={<Advertise onProductCreated={fetchProducts} />} />
+              <Route path="/track-order" element={<Tracking />} />
+              <Route path="/order" element={
+                <Checkout 
+                  cart={cart} 
+                  onRemoveFromCart={handleRemoveFromCart}
+                  onClearCart={handleClearCart} 
+                />
+              } />
+              <Route path="/contact" element={<Contact />} />
+            </Routes>
+          )}
         </main>
 
         <Footer />
@@ -83,6 +108,14 @@ const App: React.FC = () => {
         />
       </div>
     </HashRouter>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 };
 

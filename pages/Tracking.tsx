@@ -5,58 +5,101 @@ export const Tracking: React.FC = () => {
   const [trackingId, setTrackingId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<any | null>(null);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  const handleTrack = (e: React.FormEvent) => {
+  const handleTrack = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!trackingId.trim()) return;
 
     setIsLoading(true);
     setResult(null);
+    setErrorMsg('');
 
-    // Simulate API delay
-    setTimeout(() => {
-      setIsLoading(false);
-      // Mock Response Data
-      setResult({
-        id: trackingId,
-        status: 'In Transit',
-        origin: 'Nairobi, Kenya',
-        destination: 'Paris, France',
-        estimatedDelivery: 'Oct 28, 2023',
-        carrier: 'Alumni Global Logistics',
-        weight: '2.5 kg',
-        timeline: [
-          {
-            date: 'Today, 10:00 AM',
-            location: 'Cairo, Egypt',
-            description: 'Arrived at international transit hub',
-            completed: false,
-            current: true,
-          },
-          {
-            date: 'Yesterday, 08:30 PM',
-            location: 'Nairobi, Kenya',
-            description: 'Departed from origin facility',
-            completed: true,
-            current: false,
-          },
-          {
-            date: 'Yesterday, 04:15 PM',
-            location: 'Nairobi, Kenya',
-            description: 'Package received by carrier',
-            completed: true,
-            current: false,
-          },
-          {
-            date: 'Yesterday, 02:00 PM',
-            location: 'Nairobi, Kenya',
-            description: 'Order processed and ready for shipping',
-            completed: true,
-            current: false,
-          }
-        ]
+    try {
+      const response = await fetch(`/api/orders/track/${trackingId.toUpperCase().trim()}`);
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error("Order not found. Please verify the tracking code.");
+        }
+        throw new Error("Failed to retrieve order tracking details.");
+      }
+
+      const orderData = await response.json();
+
+      // Create a dynamic logistics timeline based on the database order status
+      const status = orderData.status || "Processing";
+      const createdDate = new Date(orderData.createdAt).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
       });
-    }, 1500);
+
+      const timeline = [];
+
+      if (status === "Delivered") {
+        timeline.push({
+          date: 'Delivered Successfully',
+          location: `${orderData.shippingCity}, ${orderData.shippingCountry}`,
+          description: 'Package delivered and received',
+          completed: true,
+          current: true,
+        });
+        timeline.push({
+          date: 'Completed Transit',
+          location: 'International Logistics Hub',
+          description: 'Package departed carrier facility',
+          completed: true,
+          current: false,
+        });
+        timeline.push({
+          date: createdDate,
+          location: 'Origin Hub',
+          description: 'Order registered and processing finalized',
+          completed: true,
+          current: false,
+        });
+      } else if (status === "Shipped") {
+        timeline.push({
+          date: 'In Transit',
+          location: 'International Logistics Hub',
+          description: 'Package is on its path to destination',
+          completed: false,
+          current: true,
+        });
+        timeline.push({
+          date: createdDate,
+          location: 'Origin Hub',
+          description: 'Order processed and ready for transit shipping',
+          completed: true,
+          current: false,
+        });
+      } else { // Processing
+        timeline.push({
+          date: createdDate,
+          location: 'Main Logistics Desk',
+          description: 'Payment authorized. Order list processed and packing items.',
+          completed: true,
+          current: true,
+        });
+      }
+
+      setResult({
+        id: orderData.trackingNumber,
+        status: status,
+        origin: 'International Warehouse',
+        destination: `${orderData.shippingCity}, ${orderData.shippingCountry}`,
+        estimatedDelivery: status === "Delivered" ? 'Delivered' : '4-7 Business Days',
+        timeline: timeline
+      });
+
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.message || "An unexpected error occurred during database lookup.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -82,8 +125,8 @@ export const Tracking: React.FC = () => {
               <Package className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400 h-5 w-5" />
               <input 
                 type="text" 
-                placeholder="Enter Tracking ID (e.g., ALM-883492)"
-                className="w-full pl-12 pr-4 py-4 border border-slate-200 rounded-xl focus:ring-2 focus:ring-secondary focus:border-transparent outline-none text-lg"
+                placeholder="Enter Tracking ID (e.g., AL-283401-KE)"
+                className="w-full pl-12 pr-4 py-4 border border-slate-200 rounded-xl focus:ring-2 focus:ring-secondary focus:border-transparent outline-none text-lg font-mono"
                 value={trackingId}
                 onChange={(e) => setTrackingId(e.target.value)}
               />
@@ -93,16 +136,16 @@ export const Tracking: React.FC = () => {
               disabled={isLoading}
               className="bg-primary text-white font-bold py-4 px-8 rounded-xl hover:bg-slate-800 transition-colors shadow-lg flex items-center justify-center gap-2 disabled:opacity-70 min-w-[140px]"
             >
-              {isLoading ? (
-                <>Loading...</>
-              ) : (
-                <>
-                  <Search className="h-5 w-5" /> Track
-                </>
-              )}
+              {isLoading ? "Searching..." : "Track Cargo"}
             </button>
           </form>
         </div>
+
+        {errorMsg && (
+          <div className="bg-red-50 text-red-700 p-4 rounded-xl text-sm font-medium border border-red-100 mb-8 max-w-xl mx-auto text-center animate-fade-in">
+            {errorMsg}
+          </div>
+        )}
 
         {/* Results */}
         {result && (

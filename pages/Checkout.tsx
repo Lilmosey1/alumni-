@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { CartItem } from '../types';
 import { Link, useNavigate } from 'react-router-dom';
-import { CheckCircle, CreditCard, Truck, MapPin, ChevronRight, ChevronLeft, Trash2 } from 'lucide-react';
+import { CheckCircle, CreditCard, Truck, MapPin, ChevronRight, ChevronLeft, Trash2, Copy, FileText } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext.tsx';
 
 interface CheckoutProps {
   cart: CartItem[];
@@ -12,45 +13,164 @@ interface CheckoutProps {
 const steps = ['Cart Review', 'Shipping', 'Payment'];
 
 export const Checkout: React.FC<CheckoutProps> = ({ cart, onRemoveFromCart, onClearCart }) => {
+  const { user, getAuthToken } = useAuth();
   const [currentStep, setCurrentStep] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [completedOrder, setCompletedOrder] = useState<{
+    trackingNumber: string;
+    totalAmount: number;
+    orderId: number;
+  } | null>(null);
+
   const navigate = useNavigate();
 
   const [shippingDetails, setShippingDetails] = useState({
-    fullName: '',
+    fullName: user?.displayName || '',
+    email: user?.email || '',
     address: '',
     city: '',
-    country: '',
+    country: 'Kenya',
     zip: ''
   });
 
   const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
   
-  // Mock shipping calculation logic
   const shippingCost = currentStep > 0 && shippingDetails.country 
-    ? (shippingDetails.country.toLowerCase() === 'usa' ? 15 : 45) 
+    ? (shippingDetails.country.toLowerCase() === 'kenya' ? 10 : 35) 
     : 0;
   
   const total = subtotal + shippingCost;
 
   const handleNext = () => {
+    if (currentStep === 1) {
+      if (!shippingDetails.fullName || !shippingDetails.address || !shippingDetails.city || !shippingDetails.country || !shippingDetails.email) {
+        setErrorMessage("Please fill in all required shipping and contact fields.");
+        return;
+      }
+    }
+    setErrorMessage('');
     if (currentStep < steps.length - 1) setCurrentStep(curr => curr + 1);
   };
 
   const handleBack = () => {
+    setErrorMessage('');
     if (currentStep > 0) setCurrentStep(curr => curr - 1);
   };
 
-  const handlePayment = () => {
+  const handlePayment = async () => {
     setIsProcessing(true);
-    setTimeout(() => {
-      setIsProcessing(false);
+    setErrorMessage('');
+    try {
+      const token = await getAuthToken();
+      const response = await fetch('/api/orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          items: cart.map(item => ({
+            id: item.id,
+            price: item.price,
+            quantity: item.quantity,
+          })),
+          shippingDetails: {
+            name: shippingDetails.fullName,
+            address: shippingDetails.address,
+            city: shippingDetails.city,
+            country: shippingDetails.country,
+          },
+          buyerEmail: shippingDetails.email,
+          userIdToken: token || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to submit order transaction.");
+      }
+
+      const result = await response.json();
+      setCompletedOrder({
+        trackingNumber: result.trackingNumber,
+        totalAmount: result.totalAmount,
+        orderId: result.orderId,
+      });
       onClearCart();
-      alert('Order placed successfully! Welcome to the Alumni community.');
-      navigate('/');
-    }, 2000);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMessage(err.message || "An unexpected error occurred during database checkout.");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
+  // 1. Successful Placement Screen
+  if (completedOrder) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center py-12 px-4">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-lg w-full border border-slate-100">
+          <div className="w-16 h-16 bg-teal-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <CheckCircle className="h-9 w-9 text-teal-600 animate-bounce" />
+          </div>
+          
+          <h2 className="text-3xl font-extrabold text-slate-900 text-center mb-2">Order Placed!</h2>
+          <p className="text-slate-500 text-center mb-8 leading-relaxed">
+            Thank you for shopping on Alumni! Your transaction has been registered and is secure with global logistics.
+          </p>
+
+          <div className="bg-slate-50 rounded-xl p-5 border border-slate-200 mb-8 divide-y divide-slate-100 space-y-3">
+            <div className="flex justify-between text-sm py-1">
+              <span className="text-slate-500">Order ID</span>
+              <span className="font-semibold text-slate-800">#{completedOrder.orderId}</span>
+            </div>
+            <div className="flex justify-between text-sm pt-3 py-1">
+              <span className="text-slate-500">Amount Paid</span>
+              <span className="font-extrabold text-slate-900">${completedOrder.totalAmount.toFixed(2)}</span>
+            </div>
+            <div className="pt-3 py-1">
+              <span className="block text-slate-500 text-sm mb-1.5 font-medium">Tracking Number (Copy for order tracking)</span>
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  readOnly 
+                  value={completedOrder.trackingNumber} 
+                  className="w-full bg-white border border-slate-300 rounded-lg py-2 px-3 text-sm font-mono text-slate-800 focus:outline-none"
+                />
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(completedOrder.trackingNumber);
+                  }}
+                  className="bg-primary hover:bg-slate-700 text-white px-3 py-2 rounded-lg transition-colors flex items-center justify-center"
+                  title="Copy Code"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <Link 
+              to="/track-order" 
+              className="w-full py-3.5 bg-primary text-white text-center rounded-xl font-bold hover:bg-slate-800 transition-colors shadow-md flex items-center justify-center gap-2"
+            >
+              <FileText className="h-5 w-5" />
+              <span>Track Your Cargo</span>
+            </Link>
+            <Link 
+              to="/items" 
+              className="w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-center rounded-xl font-semibold transition-colors"
+            >
+              Back to Marketplace
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Empty Cart Check
   if (cart.length === 0 && currentStep === 0) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center bg-slate-50 px-4">
@@ -66,7 +186,7 @@ export const Checkout: React.FC<CheckoutProps> = ({ cart, onRemoveFromCart, onCl
   return (
     <div className="bg-slate-50 min-h-screen py-12">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h1 className="text-3xl font-bold text-primary mb-8">Checkout</h1>
+        <h1 className="text-3xl font-bold text-primary mb-8 animate-fade-in">Checkout</h1>
 
         {/* Progress Bar */}
         <div className="mb-8">
@@ -91,6 +211,12 @@ export const Checkout: React.FC<CheckoutProps> = ({ cart, onRemoveFromCart, onCl
           {/* Main Content Area */}
           <div className="md:col-span-2 space-y-6">
             
+            {errorMessage && (
+              <div className="bg-red-50 text-red-700 p-4 rounded-xl text-sm font-medium border border-red-100">
+                {errorMessage}
+              </div>
+            )}
+
             {/* Step 1: Cart Review */}
             {currentStep === 0 && (
               <div className="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -132,26 +258,53 @@ export const Checkout: React.FC<CheckoutProps> = ({ cart, onRemoveFromCart, onCl
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
-                    <input type="text" className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-secondary focus:border-transparent outline-none" 
-                      value={shippingDetails.fullName} onChange={e => setShippingDetails({...shippingDetails, fullName: e.target.value})}
+                    <input 
+                      type="text" 
+                      required
+                      className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-secondary focus:border-transparent outline-none" 
+                      value={shippingDetails.fullName} 
+                      onChange={e => setShippingDetails({...shippingDetails, fullName: e.target.value})}
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Email for Delivery Updates</label>
+                    <input 
+                      type="email" 
+                      required
+                      className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-secondary focus:border-transparent outline-none" 
+                      value={shippingDetails.email} 
+                      onChange={e => setShippingDetails({...shippingDetails, email: e.target.value})}
                     />
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-slate-700 mb-1">Address</label>
-                    <input type="text" className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-secondary focus:border-transparent outline-none" 
-                       value={shippingDetails.address} onChange={e => setShippingDetails({...shippingDetails, address: e.target.value})}
+                    <input 
+                      type="text" 
+                      required
+                      className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-secondary focus:border-transparent outline-none" 
+                      value={shippingDetails.address} 
+                      onChange={e => setShippingDetails({...shippingDetails, address: e.target.value})}
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">City</label>
-                    <input type="text" className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-secondary focus:border-transparent outline-none" 
-                       value={shippingDetails.city} onChange={e => setShippingDetails({...shippingDetails, city: e.target.value})}
+                    <input 
+                      type="text" 
+                      required
+                      className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-secondary focus:border-transparent outline-none" 
+                      value={shippingDetails.city} 
+                      onChange={e => setShippingDetails({...shippingDetails, city: e.target.value})}
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Country</label>
-                    <input type="text" placeholder="e.g. USA" className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-secondary focus:border-transparent outline-none" 
-                       value={shippingDetails.country} onChange={e => setShippingDetails({...shippingDetails, country: e.target.value})}
+                    <input 
+                      type="text" 
+                      required
+                      placeholder="e.g. Kenya" 
+                      className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-secondary focus:border-transparent outline-none" 
+                      value={shippingDetails.country} 
+                      onChange={e => setShippingDetails({...shippingDetails, country: e.target.value})}
                     />
                   </div>
                 </div>
@@ -165,17 +318,17 @@ export const Checkout: React.FC<CheckoutProps> = ({ cart, onRemoveFromCart, onCl
                   <CreditCard className="h-5 w-5 text-secondary" /> Payment Details
                 </h2>
                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-4 text-sm text-slate-600">
-                  <p>Secure SSL encrypted connection. This is a demo checkout.</p>
+                  <p>Secure SSL encrypted connection. This is a demo checkout. Complete verification by clicking "Complete Order".</p>
                 </div>
                 <div className="space-y-4">
                   <div>
                      <label className="block text-sm font-medium text-slate-700 mb-1">Card Number</label>
-                     <input type="text" placeholder="0000 0000 0000 0000" className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-secondary focus:border-transparent outline-none" />
+                     <input type="text" placeholder="5123 0000 0000 0000" className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-secondary focus:border-transparent outline-none" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Expiry Date</label>
-                      <input type="text" placeholder="MM/YY" className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-secondary focus:border-transparent outline-none" />
+                      <input type="text" placeholder="12/28" className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-secondary focus:border-transparent outline-none" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">CVC</label>
